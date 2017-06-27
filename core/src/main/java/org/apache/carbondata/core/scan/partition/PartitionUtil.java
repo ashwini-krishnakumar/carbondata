@@ -19,37 +19,14 @@ package org.apache.carbondata.core.scan.partition;
 
 import java.math.BigDecimal;
 import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.util.BitSet;
 
-import org.apache.carbondata.common.logging.LogService;
-import org.apache.carbondata.common.logging.LogServiceFactory;
-import org.apache.carbondata.core.constants.CarbonCommonConstants;
 import org.apache.carbondata.core.metadata.datatype.DataType;
 import org.apache.carbondata.core.metadata.schema.PartitionInfo;
-import org.apache.carbondata.core.util.CarbonProperties;
 
 import org.apache.commons.lang.StringUtils;
 
 public class PartitionUtil {
-
-  private static LogService LOGGER = LogServiceFactory.getLogService(PartitionUtil.class.getName());
-
-  private static final ThreadLocal<DateFormat> timestampFormatter = new ThreadLocal<DateFormat>() {
-    @Override protected DateFormat initialValue() {
-      return new SimpleDateFormat(CarbonProperties.getInstance()
-          .getProperty(CarbonCommonConstants.CARBON_TIMESTAMP_FORMAT,
-              CarbonCommonConstants.CARBON_TIMESTAMP_DEFAULT_FORMAT));
-    }
-  };
-
-  private static final ThreadLocal<DateFormat> dateFormatter = new ThreadLocal<DateFormat>() {
-    @Override protected DateFormat initialValue() {
-      return new SimpleDateFormat(CarbonProperties.getInstance()
-          .getProperty(CarbonCommonConstants.CARBON_DATE_FORMAT,
-              CarbonCommonConstants.CARBON_DATE_DEFAULT_FORMAT));
-    }
-  };
 
   public static Partitioner getPartitioner(PartitionInfo partitionInfo) {
     switch (partitionInfo.getPartitionType()) {
@@ -65,7 +42,8 @@ public class PartitionUtil {
     }
   }
 
-  public static Object getDataBasedOnDataType(String data, DataType actualDataType) {
+  public static Object getDataBasedOnDataType(String data, DataType actualDataType,
+      DateFormat timestampFormatter, DateFormat dateFormatter) {
     if (data == null) {
       return null;
     }
@@ -85,9 +63,9 @@ public class PartitionUtil {
         case LONG:
           return Long.parseLong(data);
         case DATE:
-          return PartitionUtil.dateFormatter.get().parse(data).getTime();
+          return dateFormatter.parse(data).getTime();
         case TIMESTAMP:
-          return PartitionUtil.timestampFormatter.get().parse(data).getTime();
+          return timestampFormatter.parse(data).getTime();
         case DECIMAL:
           return new BigDecimal(data);
         default:
@@ -98,9 +76,53 @@ public class PartitionUtil {
     }
   }
 
-  public static BitSet generateBitSetBySize(int size, boolean isContainAll) {
+  /**
+   * convert the string value of partition filter to the Object
+   * @param data
+   * @param actualDataType
+   * @return
+   */
+  public static Object getDataBasedOnDataTypeForFilter(String data, DataType actualDataType) {
+    if (data == null) {
+      return null;
+    }
+    if (actualDataType != DataType.STRING && StringUtils.isEmpty(data)) {
+      return null;
+    }
+    try {
+      switch (actualDataType) {
+        case STRING:
+          return data;
+        case INT:
+          return Integer.parseInt(data);
+        case SHORT:
+          return Short.parseShort(data);
+        case DOUBLE:
+          return Double.parseDouble(data);
+        case LONG:
+          return Long.parseLong(data);
+        case DATE:
+        case TIMESTAMP:
+          return Long.parseLong(data) / 1000;
+        case DECIMAL:
+          return new BigDecimal(data);
+        default:
+          return data;
+      }
+    } catch (Exception ex) {
+      return null;
+    }
+  }
+
+  /**
+   * generate a BitSet by size
+   * @param size
+   * @param initValue true: initialize all bits to true
+   * @return
+   */
+  public static BitSet generateBitSetBySize(int size, boolean initValue) {
     BitSet bitSet = new BitSet(size);
-    if (isContainAll) {
+    if (initValue) {
       bitSet.set(0, size);
     }
     return bitSet;

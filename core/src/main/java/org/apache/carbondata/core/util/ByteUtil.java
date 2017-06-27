@@ -493,6 +493,18 @@ public final class ByteUtil {
     return n ^ Integer.MIN_VALUE;
   }
 
+  public static int toInt(byte[] bytes, int offset) {
+    return (((int)bytes[offset]) << 24) + (((int)bytes[offset + 1]) << 16) +
+        (((int)bytes[offset + 2]) << 8) + bytes[offset + 3];
+  }
+
+  public static void setInt(byte[] data, int offset, int value) {
+    data[offset] = (byte) (value >> 24);
+    data[offset + 1] = (byte) (value >> 16);
+    data[offset + 2] = (byte) (value >> 8);
+    data[offset + 3] = (byte) value;
+  }
+
   /**
    * float => byte[]
    *
@@ -670,4 +682,22 @@ public final class ByteUtil {
     System.arraycopy(srcBytes, srcOffset, tgtBytes, tgtOffset, srcLength);
     return tgtOffset + srcLength;
   }
+
+  /**
+   * flatten input byte[][] to byte[] and return
+   */
+  public static byte[] flatten(byte[][] input) {
+    int totalSize = 0;
+    for (int i = 0; i < input.length; i++) {
+      totalSize += input[i].length;
+    }
+    byte[] flattenedData = new byte[totalSize];
+    int pos = 0;
+    for (int i = 0; i < input.length; i++) {
+      System.arraycopy(input[i], 0, flattenedData, pos, input[i].length);
+      pos += input[i].length;
+    }
+    return flattenedData;
+  }
+
 }

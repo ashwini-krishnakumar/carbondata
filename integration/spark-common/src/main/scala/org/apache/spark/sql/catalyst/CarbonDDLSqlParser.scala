@@ -38,6 +38,7 @@ import org.apache.carbondata.core.metadata.schema.partition.PartitionType
 import org.apache.carbondata.core.metadata.schema.table.column.ColumnSchema
 import org.apache.carbondata.core.util.{CarbonUtil, DataTypeUtil}
 import org.apache.carbondata.processing.constants.LoggerAction
+import org.apache.carbondata.processing.newflow.sort.SortScopeOptions
 import org.apache.carbondata.spark.exception.MalformedCarbonCommandException
 import org.apache.carbondata.spark.util.{CommonUtil, DataTypeConverterUtil}
 
@@ -258,6 +259,10 @@ abstract class CarbonDDLSqlParser extends AbstractCarbonSparkSQLParser {
     // get column groups configuration from table properties.
     val groupCols: Seq[String] = updateColumnGroupsInField(tableProperties,
       noDictionaryDims, msrs, dims)
+    if (groupCols != null) {
+      throw new MalformedCarbonCommandException(
+        s"${CarbonCommonConstants.COLUMN_GROUPS} is deprecated")
+    }
 
     // get no inverted index columns from table properties.
     val noInvertedIdxCols = extractNoInvertedIndexColumns(fields, tableProperties)
@@ -530,6 +535,13 @@ abstract class CarbonDDLSqlParser extends AbstractCarbonSparkSQLParser {
     }
     if (!sortKeyString.isEmpty) {
       val sortKey = sortKeyString.split(',').map(_.trim)
+      if (sortKey.diff(sortKey.distinct).length > 0 ||
+          (sortKey.length > 1 && sortKey.contains(""))) {
+        throw new MalformedCarbonCommandException(
+          "SORT_COLUMNS Either having duplicate columns : " +
+          sortKey.diff(sortKey.distinct).mkString(",") + " or it contains illegal argumnet.")
+      }
+
       sortKey.foreach { column =>
         if (!fields.exists(x => x.column.equalsIgnoreCase(column))) {
           val errormsg = "sort_columns: " + column +
@@ -777,7 +789,12 @@ abstract class CarbonDDLSqlParser extends AbstractCarbonSparkSQLParser {
       case Token("TOK_TABLEPROPLIST", list) =>
         list.map {
           case Token("TOK_TABLEPROPERTY", Token(key, Nil) :: Token(value, Nil) :: Nil) =>
-            unquoteString(key) -> unquoteString(value)
+            val reslovedKey = unquoteString(key)
+            if (needToConvertToLowerCase(reslovedKey)) {
+              (reslovedKey, unquoteString(value))
+            } else {
+              (reslovedKey, unquoteStringWithoutLowerConversion(value))
+            }
         }
     }
   }
@@ -790,6 +807,19 @@ abstract class CarbonDDLSqlParser extends AbstractCarbonSparkSQLParser {
     }
   }
 
+  protected def unquoteStringWithoutLowerConversion(str: String) = {
+    str match {
+      case singleQuotedString(s) => s
+      case doubleQuotedString(s) => s
+      case other => other
+    }
+  }
+
+  private def needToConvertToLowerCase(key: String): Boolean = {
+    val noConvertList = Array("LIST_INFO", "RANGE_INFO")
+    !noConvertList.exists(x => x.equalsIgnoreCase(key))
+  }
+
   protected def validateOptions(optionList: Option[List[(String, String)]]): Unit = {
 
     // validate with all supported options
@@ -798,7 +828,8 @@ abstract class CarbonDDLSqlParser extends AbstractCarbonSparkSQLParser {
       "COMPLEX_DELIMITER_LEVEL_1", "COMPLEX_DELIMITER_LEVEL_2", "COLUMNDICT",
       "SERIALIZATION_NULL_FORMAT", "BAD_RECORDS_LOGGER_ENABLE", "BAD_RECORDS_ACTION",
       "ALL_DICTIONARY_PATH", "MAXCOLUMNS", "COMMENTCHAR", "DATEFORMAT",
-      "SINGLE_PASS", "IS_EMPTY_DATA_BAD_RECORD"
+      "SINGLE_PASS", "IS_EMPTY_DATA_BAD_RECORD", "SORT_SCOPE", "BATCH_SORT_SIZE_INMB",
+      "GLOBAL_SORT_PARTITIONS"
     )
     var isSupported = true
     val invalidOptions = StringBuilder.newBuilder
@@ -850,6 +881,14 @@ abstract class CarbonDDLSqlParser extends AbstractCarbonSparkSQLParser {
       if (!("true".equalsIgnoreCase(optionValue) || "false".equalsIgnoreCase(optionValue))) {
         throw new MalformedCarbonCommandException(
           "option IS_EMPTY_DATA_BAD_RECORD can have option either true or false")
+      }
+    }
+
+    if (options.exists(_._1.equalsIgnoreCase("SORT_SCOPE"))) {
+      val optionValue: String = options.get("sort_scope").get.head._2
+      if (!SortScopeOptions.isValidSortOption(optionValue)) {
+        throw new MalformedCarbonCommandException(
+          "option SORT_SCOPE can have option either BATCH_SORT or LOCAL_SORT or GLOBAL_SORT")
       }
     }
 
@@ -921,9 +960,9 @@ abstract class CarbonDDLSqlParser extends AbstractCarbonSparkSQLParser {
   private lazy val decimalType =
   DECIMAL ~ (("(" ~> numericLit <~ ",") ~ (numericLit <~ ")")).? ^^ {
     case decimal ~ precisionAndScale => if (precisionAndScale.isDefined) {
-      s"$decimal(${ precisionAndScale.get._1 }, ${ precisionAndScale.get._2 })"
+      s"decimal(${ precisionAndScale.get._1 }, ${ precisionAndScale.get._2 })"
     } else {
-      s"$decimal(10,0)"
+      s"decimal(10,0)"
     }
   }
 
